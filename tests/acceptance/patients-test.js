@@ -1,13 +1,16 @@
 import Ember from 'ember';
 import { module, test } from 'qunit';
 import startApp from 'hospitalrun/tests/helpers/start-app';
+import FakeServer, { stubRequest } from 'ember-cli-fake-server';
 
 module('Acceptance | patients', {
   beforeEach() {
+    FakeServer.start();
     this.application = startApp();
   },
 
   afterEach() {
+    FakeServer.stop();
     Ember.run(this.application, 'destroy');
   }
 });
@@ -176,3 +179,57 @@ function testExportReportName(reportName) {
     });
   });
 }
+
+function searchPatients(assert) {
+  let patientName = 'joe';
+
+  stubRequest('get', '/search/hrdb/patient/_search', function(request) {
+    let expectedQuery = {
+      q: 'data.friendlyId:*joe* OR data.externalPatientId:*joe* OR data.firstName:joe~ OR data.lastName:joe~ OR data.phone:*joe*',
+      size: '25'
+    };
+    assert.equal(JSON.stringify(request.queryParams), JSON.stringify(expectedQuery), 'Patient search request sent to the server');
+    let response = {
+      hits: {
+        total: 1,
+        hits: [
+          {
+            _index: 'hrdb',
+            _type: 'patient',
+            _id: 'patient_2_C87BFCB2-F772-7A7B-8FC7-AD00C018C32A',
+            _score: 0.2876821,
+            _source: {
+              data: {
+                friendlyId: 'P00001',
+                firstName: 'Joe',
+                lastName: 'Bagadonuts'
+              },
+              type: 'patient'
+            }
+          }
+        ]
+      }
+    };
+    request.ok(response);
+  });
+
+  fillIn('[role="search"] div input', patientName);
+  click('[role="search"] button');
+  waitToAppear(`.view-current-title:contains(Search Results for ${patientName})`);
+  andThen(function() {
+    assert.equal(currentURL(), `/patients/search/${patientName}`, 'should be on patient search list page');
+  });
+}
+
+test('search patients', function(assert) {
+  runWithPouchDump('default', function() {
+    authenticateUser();
+    visit('/patients');
+    waitToAppear('.view-current-title:contains(Patient Listing)');
+    andThen(function() {
+      assert.equal(currentURL(), '/patients', 'on patients listing page');
+
+      searchPatients(assert);
+    });
+  });
+});
